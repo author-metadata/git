@@ -321,6 +321,23 @@ static int write_oid(const struct object_id *oid,
 	return 0;
 }
 
+static int write_loose_oid(const struct object_id *oid,
+				 const char *path UNUSED,
+				 void *data)
+{
+	struct child_process *cmd = data;
+
+	if (cmd->in == -1) {
+		if (start_command(cmd))
+			die(_("could not start pack-objects to repack promisor objects"));
+	}
+
+	if (write_in_full(cmd->in, oid_to_hex(oid), the_hash_algo->hexsz) < 0 ||
+	    write_in_full(cmd->in, "\n", 1) < 0)
+		die(_("failed to feed promisor objects to pack-objects"));
+	return 0;
+}
+
 static struct {
 	const char *name;
 	unsigned optional:1;
@@ -370,12 +387,15 @@ static int has_pack_ext(const struct generated_pack_data *data,
 	BUG("unknown pack extension: '%s'", ext);
 }
 
-static void repack_promisor_objects(const struct pack_objects_args *args,
-				    struct string_list *names)
+static int repack_promisor_objects(const struct pack_objects_args *args,
+				    struct string_list *names,
+				    struct string_list *list,
+				    int pack_all)
 {
 	struct child_process cmd = CHILD_PROCESS_INIT;
 	FILE *out;
 	struct strbuf line = STRBUF_INIT;
+	struct string_list_item *item;
 
 	prepare_pack_objects(&cmd, args, packtmp);
 	cmd.in = -1;
@@ -387,13 +407,19 @@ static void repack_promisor_objects(const struct pack_objects_args *args,
 	 * {type -> existing pack order} ordering when computing deltas instead
 	 * of a {type -> size} ordering, which may produce better deltas.
 	 */
-	for_each_packed_object(write_oid, &cmd,
-			       FOR_EACH_OBJECT_PROMISOR_ONLY);
+	if (pack_all)
+		for_each_packed_object(write_oid, &cmd, 0);
+	else
+		for_each_string_list_item(item, list) {
+			pack_mark_retained(item);
+		}
+
+	for_each_loose_object(write_loose_oid, &cmd, 0);
 
 	if (cmd.in == -1) {
 		/* No packed objects; cmd was never started */
 		child_process_clear(&cmd);
-		return;
+		return 0;
 	}
 
 	close(cmd.in);
@@ -431,6 +457,7 @@ static void repack_promisor_objects(const struct pack_objects_args *args,
 	if (finish_command(&cmd))
 		die(_("could not finish pack-objects to repack promisor objects"));
 	strbuf_release(&line);
+	return 0;
 }
 
 struct pack_geometry {
@@ -1312,8 +1339,7 @@ int cmd_repack(int argc,
 		strvec_push(&cmd.args, "--reflog");
 		strvec_push(&cmd.args, "--indexed-objects");
 	}
-	if (repo_has_promisor_remote(the_repository))
-		strvec_push(&cmd.args, "--exclude-promisor-objects");
+
 	if (!write_midx) {
 		if (write_bitmaps > 0)
 			strvec_push(&cmd.args, "--write-bitmap-index");
@@ -1323,125 +1349,128 @@ int cmd_repack(int argc,
 	if (use_delta_islands)
 		strvec_push(&cmd.args, "--delta-islands");
 
-	if (pack_everything & ALL_INTO_ONE) {
-		repack_promisor_objects(&po_args, &names);
-
-		if (has_existing_non_kept_packs(&existing) &&
-		    delete_redundant &&
-		    !(pack_everything & PACK_CRUFT)) {
-			for_each_string_list_item(item, &names) {
-				strvec_pushf(&cmd.args, "--keep-pack=%s-%s.pack",
-					     packtmp_name, item->string);
-			}
-			if (unpack_unreachable) {
-				strvec_pushf(&cmd.args,
-					     "--unpack-unreachable=%s",
-					     unpack_unreachable);
-			} else if (pack_everything & LOOSEN_UNREACHABLE) {
-				strvec_push(&cmd.args,
-					    "--unpack-unreachable");
-			} else if (keep_unreachable) {
-				strvec_push(&cmd.args, "--keep-unreachable");
-				strvec_push(&cmd.args, "--pack-loose-unreachable");
-			}
-		}
-	} else if (geometry.split_factor) {
-		strvec_push(&cmd.args, "--stdin-packs");
-		strvec_push(&cmd.args, "--unpacked");
+	if (repo_has_promisor_remote(the_repository)) {
+		ret = repack_promisor_objects(&po_args, &names,
+			&existing.non_kept_packs, pack_everything & ALL_INTO_ONE);
 	} else {
-		strvec_push(&cmd.args, "--unpacked");
-		strvec_push(&cmd.args, "--incremental");
-	}
+		if (pack_everything & ALL_INTO_ONE) {
+			if (has_existing_non_kept_packs(&existing) &&
+			delete_redundant &&
+			!(pack_everything & PACK_CRUFT)) {
+				for_each_string_list_item(item, &names) {
+					strvec_pushf(&cmd.args, "--keep-pack=%s-%s.pack",
+						packtmp_name, item->string);
+				}
+				if (unpack_unreachable) {
+					strvec_pushf(&cmd.args,
+						"--unpack-unreachable=%s",
+						unpack_unreachable);
+				} else if (pack_everything & LOOSEN_UNREACHABLE) {
+					strvec_push(&cmd.args,
+						"--unpack-unreachable");
+				} else if (keep_unreachable) {
+					strvec_push(&cmd.args, "--keep-unreachable");
+					strvec_push(&cmd.args, "--pack-loose-unreachable");
+				}
+			}
+		} else if (geometry.split_factor) {
+			strvec_push(&cmd.args, "--stdin-packs");
+			strvec_push(&cmd.args, "--unpacked");
+		} else {
+			strvec_push(&cmd.args, "--unpacked");
+			strvec_push(&cmd.args, "--incremental");
+		}
 
-	if (po_args.filter_options.choice)
-		strvec_pushf(&cmd.args, "--filter=%s",
-			     expand_list_objects_filter_spec(&po_args.filter_options));
-	else if (filter_to)
-		die(_("option '%s' can only be used along with '%s'"), "--filter-to", "--filter");
+		if (po_args.filter_options.choice)
+			strvec_pushf(&cmd.args, "--filter=%s",
+				expand_list_objects_filter_spec(&po_args.filter_options));
+		else if (filter_to)
+			die(_("option '%s' can only be used along with '%s'"), "--filter-to", "--filter");
 
-	if (geometry.split_factor)
-		cmd.in = -1;
-	else
-		cmd.no_stdin = 1;
+		if (geometry.split_factor)
+			cmd.in = -1;
+		else
+			cmd.no_stdin = 1;
 
-	ret = start_command(&cmd);
-	if (ret)
-		goto cleanup;
-
-	if (geometry.split_factor) {
-		FILE *in = xfdopen(cmd.in, "w");
-		/*
-		 * The resulting pack should contain all objects in packs that
-		 * are going to be rolled up, but exclude objects in packs which
-		 * are being left alone.
-		 */
-		for (i = 0; i < geometry.split; i++)
-			fprintf(in, "%s\n", pack_basename(geometry.pack[i]));
-		for (i = geometry.split; i < geometry.pack_nr; i++)
-			fprintf(in, "^%s\n", pack_basename(geometry.pack[i]));
-		fclose(in);
-	}
-
-	ret = finish_pack_objects_cmd(&cmd, &names, 1);
-	if (ret)
-		goto cleanup;
-
-	if (!names.nr && !po_args.quiet)
-		printf_ln(_("Nothing new to pack."));
-
-	if (pack_everything & PACK_CRUFT) {
-		const char *pack_prefix = find_pack_prefix(packdir, packtmp);
-
-		if (!cruft_po_args.window)
-			cruft_po_args.window = po_args.window;
-		if (!cruft_po_args.window_memory)
-			cruft_po_args.window_memory = po_args.window_memory;
-		if (!cruft_po_args.depth)
-			cruft_po_args.depth = po_args.depth;
-		if (!cruft_po_args.threads)
-			cruft_po_args.threads = po_args.threads;
-		if (!cruft_po_args.max_pack_size)
-			cruft_po_args.max_pack_size = po_args.max_pack_size;
-
-		cruft_po_args.local = po_args.local;
-		cruft_po_args.quiet = po_args.quiet;
-
-		ret = write_cruft_pack(&cruft_po_args, packtmp, pack_prefix,
-				       cruft_expiration, &names,
-				       &existing);
+		ret = start_command(&cmd);
 		if (ret)
 			goto cleanup;
 
-		if (delete_redundant && expire_to) {
+		if (geometry.split_factor) {
+			FILE *in = xfdopen(cmd.in, "w");
 			/*
-			 * If `--expire-to` is given with `-d`, it's possible
-			 * that we're about to prune some objects. With cruft
-			 * packs, pruning is implicit: any objects from existing
-			 * packs that weren't picked up by new packs are removed
-			 * when their packs are deleted.
-			 *
-			 * Generate an additional cruft pack, with one twist:
-			 * `names` now includes the name of the cruft pack
-			 * written in the previous step. So the contents of
-			 * _this_ cruft pack exclude everything contained in the
-			 * existing cruft pack (that is, all of the unreachable
-			 * objects which are no older than
-			 * `--cruft-expiration`).
-			 *
-			 * To make this work, cruft_expiration must become NULL
-			 * so that this cruft pack doesn't actually prune any
-			 * objects. If it were non-NULL, this call would always
-			 * generate an empty pack (since every object not in the
-			 * cruft pack generated above will have an mtime older
-			 * than the expiration).
-			 */
-			ret = write_cruft_pack(&cruft_po_args, expire_to,
-					       pack_prefix,
-					       NULL,
-					       &names,
-					       &existing);
+			* The resulting pack should contain all objects in packs that
+			* are going to be rolled up, but exclude objects in packs which
+			* are being left alone.
+			*/
+			for (i = 0; i < geometry.split; i++)
+				fprintf(in, "%s\n", pack_basename(geometry.pack[i]));
+			for (i = geometry.split; i < geometry.pack_nr; i++)
+				fprintf(in, "^%s\n", pack_basename(geometry.pack[i]));
+			fclose(in);
+		}
+
+		ret = finish_pack_objects_cmd(&cmd, &names, 1);
+		if (ret)
+			goto cleanup;
+
+		if (!names.nr && !po_args.quiet)
+			printf_ln(_("Nothing new to pack."));
+
+		if (pack_everything & PACK_CRUFT) {
+			const char *pack_prefix = find_pack_prefix(packdir, packtmp);
+
+			if (!cruft_po_args.window)
+				cruft_po_args.window = po_args.window;
+			if (!cruft_po_args.window_memory)
+				cruft_po_args.window_memory = po_args.window_memory;
+			if (!cruft_po_args.depth)
+				cruft_po_args.depth = po_args.depth;
+			if (!cruft_po_args.threads)
+				cruft_po_args.threads = po_args.threads;
+			if (!cruft_po_args.max_pack_size)
+				cruft_po_args.max_pack_size = po_args.max_pack_size;
+
+			cruft_po_args.local = po_args.local;
+			cruft_po_args.quiet = po_args.quiet;
+
+			ret = write_cruft_pack(&cruft_po_args, packtmp, pack_prefix,
+					cruft_expiration, &names,
+					&existing);
 			if (ret)
 				goto cleanup;
+
+			if (delete_redundant && expire_to) {
+				/*
+				* If `--expire-to` is given with `-d`, it's possible
+				* that we're about to prune some objects. With cruft
+				* packs, pruning is implicit: any objects from existing
+				* packs that weren't picked up by new packs are removed
+				* when their packs are deleted.
+				*
+				* Generate an additional cruft pack, with one twist:
+				* `names` now includes the name of the cruft pack
+				* written in the previous step. So the contents of
+				* _this_ cruft pack exclude everything contained in the
+				* existing cruft pack (that is, all of the unreachable
+				* objects which are no older than
+				* `--cruft-expiration`).
+				*
+				* To make this work, cruft_expiration must become NULL
+				* so that this cruft pack doesn't actually prune any
+				* objects. If it were non-NULL, this call would always
+				* generate an empty pack (since every object not in the
+				* cruft pack generated above will have an mtime older
+				* than the expiration).
+				*/
+				ret = write_cruft_pack(&cruft_po_args, expire_to,
+						pack_prefix,
+						NULL,
+						&names,
+						&existing);
+				if (ret)
+					goto cleanup;
+			}
 		}
 	}
 
