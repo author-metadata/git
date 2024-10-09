@@ -1201,7 +1201,7 @@ static void write_reused_pack(struct bitmapped_pack *reuse_packfile,
 			if (pos + offset >= reuse_packfile->bitmap_pos + reuse_packfile->bitmap_nr)
 				goto done;
 
-			if (reuse_packfile->bitmap_pos) {
+			if (bitmap_is_midx(bitmap_git)) {
 				/*
 				 * When doing multi-pack reuse on a
 				 * non-preferred pack, translate bit positions
@@ -1209,7 +1209,7 @@ static void write_reused_pack(struct bitmapped_pack *reuse_packfile,
 				 * pack-relative positions before attempting
 				 * reuse.
 				 */
-				struct multi_pack_index *m = reuse_packfile->from_midx;
+				struct multi_pack_index *m = bitmap_midx(bitmap_git);
 				uint32_t midx_pos;
 				off_t pack_ofs;
 
