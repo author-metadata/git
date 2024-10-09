@@ -17,6 +17,6 @@ sed -e '1{' \
     -e "	r $PERL_HEADER" \
     -e '	G' \
     -e '}' \
-    -e "s/@@GIT_VERSION@@/$GIT_VERSION/g" \
+    -e "s/@GIT_VERSION@/$GIT_VERSION/g" \
     "$PERL_SCRIPT" >"$OUT"
 chmod a+x "$OUT"
