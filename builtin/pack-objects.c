@@ -1088,6 +1088,8 @@ static void write_reused_pack_one(struct packed_git *reuse_packfile,
 			uint32_t base_pos;
 			struct object_id base_oid;
 
+			BUG("tested");
+
 			if (offset_to_pack_pos(reuse_packfile, base_offset, &base_pos) < 0)
 				die(_("expected object at offset %"PRIuMAX" "
 				      "in pack %s"),
