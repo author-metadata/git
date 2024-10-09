@@ -878,22 +878,16 @@ endforeach()
 
 
 #templates
-file(GLOB templates "${CMAKE_SOURCE_DIR}/templates/*")
+file(GLOB templates "${CMAKE_SOURCE_DIR}/templates/**")
 list(TRANSFORM templates REPLACE "${CMAKE_SOURCE_DIR}/templates/" "")
 list(REMOVE_ITEM templates ".gitignore")
 list(REMOVE_ITEM templates "Makefile")
 list(REMOVE_ITEM templates "blt")# Prevents an error when reconfiguring for in source builds
 
-list(REMOVE_ITEM templates "branches--")
-file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/templates/blt/branches) #create branches
-
 #templates have @.*@ replacement so use configure_file instead
 foreach(tm ${templates})
-	string(REPLACE "--" "/" blt_tm ${tm})
-	string(REPLACE "this" "" blt_tm ${blt_tm})# for this--
 	configure_file(${CMAKE_SOURCE_DIR}/templates/${tm} ${CMAKE_BINARY_DIR}/templates/blt/${blt_tm} @ONLY)
 endforeach()
-
 
 #translations
 if(MSGFMT_EXE)
