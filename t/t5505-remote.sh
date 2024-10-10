@@ -429,12 +429,51 @@ test_expect_success 'set-head --auto' '
 	)
 '
 
+test_expect_success 'set-head --auto detects creation' '
+	(
+		cd test &&
+		rm .git/refs/remotes/origin/HEAD &&
+		git remote set-head --auto origin >output &&
+		echo "'\''origin/HEAD'\'' is now created and points to '\''main'\''" >expect &&
+		test_cmp expect output
+	)
+'
+
+test_expect_success 'set-head --auto detects no change' '
+	(
+		cd test &&
+		git remote set-head --auto origin >output &&
+		echo "'\''origin/HEAD'\'' is unchanged and points to '\''main'\''" >expect &&
+		test_cmp expect output
+	)
+'
+
+test_expect_success 'set-head --auto detects change' '
+	(
+		cd test &&
+		echo "ref: refs/remotes/origin/ahead" >.git/refs/remotes/origin/HEAD &&
+		git remote set-head --auto origin >output &&
+		echo "'\''origin/HEAD'\'' has changed from '\''ahead'\'' and now points to '\''main'\''" >expect &&
+		test_cmp expect output
+	)
+'
+
+test_expect_success 'set-head --auto detects strange ref' '
+	(
+		cd test &&
+		echo "ref: refs/heads/main" >.git/refs/remotes/origin/HEAD &&
+		git remote set-head --auto origin >output &&
+		echo "'\''origin/HEAD'\'' used to point to '\''refs/heads/main'\'' (which is unusual), but now points to '\''main'\''" >expect &&
+		test_cmp expect output
+	)
+'
+
 test_expect_success 'set-head --auto has no problem w/multiple HEADs' '
 	(
 		cd test &&
 		git fetch two "refs/heads/*:refs/remotes/two/*" &&
 		git remote set-head --auto two >output 2>&1 &&
-		echo "two/HEAD set to main" >expect &&
+		echo "'\''two/HEAD'\'' is now created and points to '\''main'\''" >expect &&
 		test_cmp expect output
 	)
 '
@@ -449,6 +488,17 @@ test_expect_success 'set-head explicit' '
 		git remote set-head origin side2 &&
 		git symbolic-ref refs/remotes/origin/HEAD >output &&
 		git remote set-head origin main &&
+		test_cmp expect output
+	)
+'
+
+
+test_expect_success 'set-head --auto reports change' '
+	(
+		cd test &&
+		git remote set-head origin side2 &&
+		git remote set-head --auto origin >output 2>&1 &&
+		echo "'\''origin/HEAD'\'' has changed from '\''side2'\'' and now points to '\''main'\''" >expect &&
 		test_cmp expect output
 	)
 '
