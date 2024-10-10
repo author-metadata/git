@@ -2115,29 +2115,43 @@ int peel_iterated_oid(struct repository *r, const struct object_id *base, struct
 
 int refs_update_symref(struct ref_store *refs, const char *ref,
 		       const char *target, const char *logmsg,
-		       struct strbuf *before_target)
+		       struct strbuf *before_target, int create_only)
 {
 	struct ref_transaction *transaction;
 	struct strbuf err = STRBUF_INIT;
 	int ret = 0;
 
 	transaction = ref_store_transaction_begin(refs, &err);
-	if (!transaction ||
-	    ref_transaction_update(transaction, ref, NULL, NULL,
-				   target, NULL, REF_NO_DEREF,
-				   logmsg, &err) ||
-	    ref_transaction_commit(transaction, &err)) {
+	if (!transaction) {
+	error_return:
 		ret = error("%s", err.buf);
+		goto cleanup;
+	}
+	if (create_only) {
+		int create_ret = 0;
+		if (ref_transaction_create(transaction, ref, NULL, target,
+					   REF_NO_DEREF, logmsg, &err))
+			goto error_return;
+		create_ret = ref_transaction_commit(transaction, &err);
+		if (create_ret && create_ret != TRANSACTION_CREATE_EXISTS)
+			ret = error("%s", err.buf);
+
+	} else {
+		if (ref_transaction_update(transaction, ref, NULL, NULL,
+					   target, NULL, REF_NO_DEREF,
+					   logmsg, &err) ||
+		    ref_transaction_commit(transaction, &err))
+			goto error_return;
 	}
 
+cleanup:
 	strbuf_release(&err);
 
-	if (transaction && before_target && transaction->updates[0]->before_target)
-		strbuf_addstr(before_target, transaction->updates[0]->before_target);
-
-	if (transaction)
+	if (transaction) {
+		if (before_target && transaction->updates[0]->before_target)
+			strbuf_addstr(before_target, transaction->updates[0]->before_target);
 		ref_transaction_free(transaction);
-
+	}
 	return ret;
 }
 
