@@ -21,6 +21,6 @@ foreach hook : hooks
     output: hook,
     configuration: template_config,
     install: true,
-    install_dir: get_option('datadir') / 'git-core/templates',
+    install_dir: get_option('datadir') / 'git-core/templates/hooks',
   )
 endforeach

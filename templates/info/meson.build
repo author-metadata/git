@@ -3,5 +3,5 @@ configure_file(
   output: 'exclude',
   configuration: template_config,
   install: true,
-  install_dir: get_option('datadir') / 'git-core/templates',
+  install_dir: get_option('datadir') / 'git-core/templates/info',
 )
