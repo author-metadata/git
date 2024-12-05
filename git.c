@@ -1,5 +1,4 @@
 #define USE_THE_REPOSITORY_VARIABLE
-#define DISABLE_SIGN_COMPARE_WARNINGS
 
 #include "builtin.h"
 #include "config.h"
@@ -56,7 +55,7 @@ static void list_builtins(struct string_list *list, unsigned int exclude_option)
 
 static void exclude_helpers_from_list(struct string_list *list)
 {
-	int i = 0;
+	size_t i = 0;
 
 	while (i < list->nr) {
 		if (strstr(list->items[i].string, "--"))
@@ -76,7 +75,6 @@ static int match_token(const char *spec, int len, const char *token)
 static int list_cmds(const char *spec)
 {
 	struct string_list list = STRING_LIST_INIT_DUP;
-	int i;
 	int nongit;
 
 	/*
@@ -114,7 +112,7 @@ static int list_cmds(const char *spec)
 		if (*spec == ',')
 			spec++;
 	}
-	for (i = 0; i < list.nr; i++)
+	for (size_t i = 0; i < list.nr; i++)
 		puts(list.items[i].string);
 	string_list_clear(&list, 0);
 	return 0;
@@ -323,10 +321,9 @@ static int handle_options(const char ***argv, int *argc, int *envchanged)
 			trace2_cmd_name("_query_");
 			if (!strcmp(cmd, "parseopt")) {
 				struct string_list list = STRING_LIST_INIT_DUP;
-				int i;
 
 				list_builtins(&list, NO_PARSEOPT);
-				for (i = 0; i < list.nr; i++)
+				for (size_t i = 0; i < list.nr; i++)
 					printf("%s ", list.items[i].string);
 				string_list_clear(&list, 0);
 				exit(0);
@@ -654,8 +651,7 @@ static struct cmd_struct commands[] = {
 
 static struct cmd_struct *get_builtin(const char *s)
 {
-	int i;
-	for (i = 0; i < ARRAY_SIZE(commands); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(commands); i++) {
 		struct cmd_struct *p = commands + i;
 		if (!strcmp(s, p->cmd))
 			return p;
@@ -670,8 +666,7 @@ int is_builtin(const char *s)
 
 static void list_builtins(struct string_list *out, unsigned int exclude_option)
 {
-	int i;
-	for (i = 0; i < ARRAY_SIZE(commands); i++) {
+	for (size_t i = 0; i < ARRAY_SIZE(commands); i++) {
 		if (exclude_option &&
 		    (commands[i].option & exclude_option))
 			continue;
@@ -682,7 +677,6 @@ static void list_builtins(struct string_list *out, unsigned int exclude_option)
 void load_builtin_commands(const char *prefix, struct cmdnames *cmds)
 {
 	const char *name;
-	int i;
 
 	/*
 	 * Callers can ask for a subset of the commands based on a certain
@@ -693,7 +687,7 @@ void load_builtin_commands(const char *prefix, struct cmdnames *cmds)
 	if (!skip_prefix(prefix, "git-", &prefix))
 		BUG("prefix '%s' must start with 'git-'", prefix);
 
-	for (i = 0; i < ARRAY_SIZE(commands); i++)
+	for (size_t i = 0; i < ARRAY_SIZE(commands); i++)
 		if (skip_prefix(commands[i].cmd, prefix, &name))
 			add_cmdname(cmds, name, strlen(name));
 }
@@ -859,9 +853,8 @@ static int run_argv(int *argcp, const char ***argv)
 
 		seen = unsorted_string_list_lookup(&cmd_list, *argv[0]);
 		if (seen) {
-			int i;
 			struct strbuf sb = STRBUF_INIT;
-			for (i = 0; i < cmd_list.nr; i++) {
+			for (size_t i = 0; i < cmd_list.nr; i++) {
 				struct string_list_item *item = &cmd_list.items[i];
 
 				strbuf_addf(&sb, "\n  %s", item->string);
