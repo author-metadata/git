@@ -336,8 +336,6 @@ static void describe_commit(struct object_id *oid, struct strbuf *dst)
 		return;
 	}
 
-	if (!max_candidates)
-		die(_("no tag exactly matches '%s'"), oid_to_hex(&cmit->object.oid));
 	if (debug)
 		fprintf(stderr, _("No exact match on refs or tags, searching to describe\n"));
 

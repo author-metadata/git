@@ -716,4 +716,10 @@ test_expect_success 'describe --broken --dirty with a file with changed stat' '
 	)
 '
 
+test_expect_success '--always with no refs falls back to commit hash' '
+	git rev-parse HEAD >expect &&
+	git describe --no-abbrev --always --match=no-such-tag >actual &&
+	test_cmp expect actual
+'
+
 test_done
