@@ -39,7 +39,6 @@ static int packet_trace_pack(const char *buf, unsigned int len, int sideband)
 
 static void packet_trace(const char *buf, unsigned int len, int write)
 {
-	int i;
 	struct strbuf out;
 	static int in_pack, sideband;
 
@@ -72,7 +71,7 @@ static void packet_trace(const char *buf, unsigned int len, int write)
 		    get_trace_prefix(), write ? '>' : '<');
 
 	/* XXX we should really handle printable utf8 */
-	for (i = 0; i < len; i++) {
+	for (unsigned int i = 0; i < len; i++) {
 		/* suppress newlines */
 		if (buf[i] == '\n')
 			continue;
@@ -361,7 +360,7 @@ static int get_packet_data(int fd, char **src_buf, size_t *src_size,
 	}
 
 	/* And complain if we didn't get enough bytes to satisfy the read. */
-	if (ret != size) {
+	if ((size_t)ret != (size_t)size) {
 		if (options & PACKET_READ_GENTLE_ON_EOF)
 			return -1;
 
